@@ -14,6 +14,8 @@ def fix_id(doc):
         doc["_id"] = str(doc["_id"])
         if "customerId" in doc:
             doc["customerId"] = str(doc["customerId"])
+            if "items" in doc:
+            for item in doc["items"]:
             if "productId" in doc:
                 doc["productId"] = str(doc["productId"])
     return doc
