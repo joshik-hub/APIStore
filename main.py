@@ -12,6 +12,10 @@ db = client["AI"]
 def fix_id(doc):
     if "_id" in doc:
         doc["_id"] = str(doc["_id"])
+        if "customerId" in doc:
+            doc["customerId"] = str(doc["customerId"])
+            if "productId" in doc:
+                doc["productId"] = str(doc["productId"])
     return doc
 
 # ------------------- Authentication -------------------
