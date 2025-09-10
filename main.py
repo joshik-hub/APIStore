@@ -329,30 +329,60 @@ def list_products(category: Optional[str] = None, status: Optional[str] = None):
     docs = list(db.products.find(query))
     return [fix_id(doc) for doc in docs]
 
-# @app.patch("/products/{product_id}")
-# def update_product(product_id: str, updates: ProductUpdate):
-#     update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
-#     result = db.products.update_one(
-#         {"_id": validate_object_id(product_id)},
-#         {"$set": update_data}
-#     )
-#     if result.matched_count == 0:
-#         raise HTTPException(status_code=404, detail="Product not found")
-#     return get_product(product_id)
-
 @app.patch("/products/{product_id}")
-def update_product(product_id: str, updates: dict):
-    update_data = {k: v for k, v in updates.items() if v is not None}
+def update_product(product_id: str, updates: ProductUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+
+    # Convert price to double if provided
+    if "price" in update_data:
+        update_data["price"] = float(update_data["price"])
 
     result = db.products.update_one(
         {"_id": validate_object_id(product_id)},
         {"$set": update_data}
     )
-
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Product not found")
+    return get_product(product_id)
 
-    return db.products.find_one({"_id": validate_object_id(product_id)})
+# @app.patch("/products/{product_id}")
+# def update_product(product_id: str, updates: dict):
+#     update_data = {k: v for k, v in updates.items() if v is not None}
+#
+#     result = db.products.update_one(
+#         {"_id": validate_object_id(product_id)},
+#         {"$set": update_data}
+#     )
+#
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Product not found")
+#
+#     return db.products.find_one({"_id": validate_object_id(product_id)})
+
+# @app.patch("/products/{product_id}")
+# def update_product(product_id: str, updates: ProductUpdate):
+#     update_data = updates.dict(exclude_unset=True)
+#     update_data.pop("_id", None)  # never update _id
+#
+#     # Convert price to double if provided
+#     if "price" in update_data:
+#         update_data["price"] = float(update_data["price"])
+#
+#     # Single ObjectId, do NOT iterate
+#     product_oid = validate_object_id(product_id)
+#
+#     result = db.products.update_one(
+#         {"_id": product_oid},
+#         {"$set": update_data}
+#     )
+#
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Product not found")
+#
+#     # Fetch updated document
+#     return db.products.find_one({"_id": validate_object_id(product_id)})
+#
+#     return updated_product
 
 
 @app.delete("/products/{product_id}")
