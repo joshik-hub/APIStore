@@ -126,30 +126,32 @@ def list_customers(status: Optional[str] = Query(None, regex="^(active|inactive)
     docs = list(db.customers.find(query))
     return [fix_id(doc) for doc in docs]
 
-# @app.patch("/customers/{customer_id}")
-# def update_customer(customer_id: str, updates: CustomerUpdate):
-#     update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
-#     result = db.customers.update_one(
-#         {"_id": validate_object_id(customer_id)},
-#         {"$set": update_data}
-#     )
-#     if result.matched_count == 0:
-#         raise HTTPException(status_code=404, detail="Customer not found")
-#     return get_customer(customer_id)
-
 @app.patch("/customers/{customer_id}")
-def update_customer(customer_id: str, updates: dict):
-    update_data = {k: v for k, v in updates.items() if v is not None}
+def update_customer(customer_id: str, updates: CustomerUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+    update_data.pop("_id", None)  # never update _id
 
     result = db.customers.update_one(
         {"_id": validate_object_id(customer_id)},
         {"$set": update_data}
     )
-
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Customer not found")
+    return get_customer(customer_id)
 
-    return db.customers.find_one({"_id": validate_object_id(customer_id)})
+# @app.patch("/customers/{customer_id}")
+# def update_customer(customer_id: str, updates: dict):
+#     update_data = {k: v for k, v in updates.items() if v is not None}
+#
+#     result = db.customers.update_one(
+#         {"_id": validate_object_id(customer_id)},
+#         {"$set": update_data}
+#     )
+#
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Customer not found")
+#
+#     return db.customers.find_one({"_id": validate_object_id(customer_id)})
 
 
 @app.delete("/customers/{customer_id}")
@@ -182,30 +184,31 @@ def list_addresses(customerId: Optional[str] = None):
     docs = list(db.addresses.find(query))
     return [fix_id(doc) for doc in docs]
 
-# @app.patch("/addresses/{address_id}")
-# def update_address(address_id: str, updates: AddressUpdate):
-#     update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
-#     result = db.addresses.update_one(
-#         {"_id": validate_object_id(address_id)},
-#         {"$set": update_data}
-#     )
-#     if result.matched_count == 0:
-#         raise HTTPException(status_code=404, detail="Address not found")
-#     return get_address(address_id)
-
 @app.patch("/addresses/{address_id}")
-def update_address(address_id: str, updates: dict):
-    update_data = {k: v for k, v in updates.items() if v is not None}
+def update_address(address_id: str, updates: AddressUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
 
     result = db.addresses.update_one(
         {"_id": validate_object_id(address_id)},
         {"$set": update_data}
     )
-
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Address not found")
+    return get_address(address_id)
 
-    return db.addresses.find_one({"_id": validate_object_id(address_id)})
+# @app.patch("/addresses/{address_id}")
+# def update_address(address_id: str, updates: dict):
+#     update_data = {k: v for k, v in updates.items() if v is not None}
+#
+#     result = db.addresses.update_one(
+#         {"_id": validate_object_id(address_id)},
+#         {"$set": update_data}
+#     )
+#
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Address not found")
+#
+#     return db.addresses.find_one({"_id": validate_object_id(address_id)})
 
 
 @app.delete("/addresses/{address_id}")
