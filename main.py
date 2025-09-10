@@ -313,7 +313,7 @@ def delete_order(order_id: str):
 def create_product(product: ProductCreate):
     doc = product.dict()
     result = db.products.insert_one(doc)
-        return {"inserted_id": str(result.inserted_id)}
+    return {"inserted_id": str(result.inserted_id)}
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):
