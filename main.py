@@ -15,15 +15,15 @@ def validate_object_id(id_str: str) -> ObjectId:
         raise HTTPException(status_code=400, detail=f"Invalid ObjectId: {id_str}")
     return ObjectId(id_str)
 
-def fix_id(doc: dict) -> dict:
-    if not doc:
+def fix_id(doc):
+    if isinstance(doc, dict):
+        return {k: fix_id(v) for k, v in doc.items()}
+    elif isinstance(doc, list):
+        return [fix_id(v) for v in doc]
+    elif isinstance(doc, ObjectId):
+        return str(doc)
+    else:
         return doc
-    for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            doc[key] = str(value)
-        elif isinstance(value, list):
-            doc[key] = [str(v) if isinstance(v, ObjectId) else v for v in value]
-    return doc
 
 
 # -------------------------------
