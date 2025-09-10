@@ -329,21 +329,21 @@ def list_products(category: Optional[str] = None, status: Optional[str] = None):
     docs = list(db.products.find(query))
     return [fix_id(doc) for doc in docs]
 
-@app.patch("/products/{product_id}")
-def update_product(product_id: str, updates: ProductUpdate):
-    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
-
-    # Convert price to double if provided
-    if "price" in update_data:
-        update_data["price"] = float(update_data["price"])
-
-    result = db.products.update_one(
-        {"_id": validate_object_id(product_id)},
-        {"$set": update_data}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return get_product(product_id)
+# @app.patch("/products/{product_id}")
+# def update_product(product_id: str, updates: ProductUpdate):
+#     update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+#
+#     # Convert price to double if provided
+#     if "price" in update_data:
+#         update_data["price"] = float(update_data["price"])
+#
+#     result = db.products.update_one(
+#         {"_id": validate_object_id(product_id)},
+#         {"$set": update_data}
+#     )
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Product not found")
+#     return get_product(product_id)
 
 # @app.patch("/products/{product_id}")
 # def update_product(product_id: str, updates: dict):
@@ -383,6 +383,25 @@ def update_product(product_id: str, updates: ProductUpdate):
 #     return db.products.find_one({"_id": validate_object_id(product_id)})
 #
 #     return updated_product
+
+@app.patch("/products/{product_id}")
+def update_product(product_id: str, updates: ProductUpdate):
+    update_data = updates.dict(exclude_unset=True)
+
+    # Convert price to float if provided
+    if "price" in update_data and update_data["price"] is not None:
+        update_data["price"] = float(update_data["price"])
+
+    result = db.products.update_one(
+        {"_id": validate_object_id(product_id)},
+        {"$set": update_data}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    return get_product(product_id)
+
 
 
 @app.delete("/products/{product_id}")
