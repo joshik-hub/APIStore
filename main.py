@@ -1,184 +1,317 @@
-from fastapi import FastAPI, HTTPException, Depends, status
-from pymongo import MongoClient
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional
 from bson import ObjectId
+from bson.son import SON
+from pymongo import MongoClient
 
-app = FastAPI()
-
-# ------------------- MongoDB -------------------
+# Mongo connection
 client = MongoClient("mongodb+srv://mongo_db_user:ACsH2Jmp9qrsk3nt@customer.amld2yw.mongodb.net/")
 db = client["AI"]
 
-# Helper to convert ObjectId to string
-def fix_id(doc):
-    if "_id" in doc:
-        doc["_id"] = str(doc["_id"])
-    if "customerId" in doc:
-        doc["customerId"] = str(doc["customerId"])
-    if "items" in doc:
-        for item in doc["items"]:
-            if "productId" in item:
-                item["productId"] = str(item["productId"])
+# Helpers
+def validate_object_id(id_str: str) -> ObjectId:
+    if not ObjectId.is_valid(id_str):
+        raise HTTPException(status_code=400, detail=f"Invalid ObjectId: {id_str}")
+    return ObjectId(id_str)
+
+def fix_id(doc: dict) -> dict:
+    if not doc:
+        return doc
+    for key, value in doc.items():
+        if isinstance(value, ObjectId):
+            doc[key] = str(value)
+        elif isinstance(value, list):
+            doc[key] = [str(v) if isinstance(v, ObjectId) else v for v in value]
     return doc
 
-# ------------------- Authentication -------------------
-from fastapi.security import OAuth2PasswordBearer
-VALID_TOKENS = ["mysecrettoken123"]
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def verify_token(token: str = Depends(oauth2_scheme)):
-    if token not in VALID_TOKENS:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return token
+# -------------------------------
+# Pydantic Models (Create + Update)
+# -------------------------------
 
-# ------------------- Generic CRUD helper -------------------
-def get_collection(name: str):
-    return db[name]
+class CustomerCreate(BaseModel):
+    firstName: str
+    lastName: str
+    email: EmailStr
+    phone: str
+    status: str = Field(default="active", pattern="^(active|inactive)$")
 
-# ------------------- Customers -------------------
-@app.post("/customers", dependencies=[Depends(verify_token)])
-def create_customer(customer: dict):
-    res = db.customers.insert_one(customer)
-    return {"_id": str(res.inserted_id)}
+class CustomerUpdate(BaseModel):
+    firstName: Optional[str]
+    lastName: Optional[str]
+    email: Optional[EmailStr]
+    phone: Optional[str]
+    status: Optional[str] = Field(default=None, pattern="^(active|inactive)$")
 
-@app.get("/customers", dependencies=[Depends(verify_token)])
-def list_customers():
-    return [fix_id(c) for c in db.customers.find()]
+class AddressCreate(BaseModel):
+    customerId: str
+    street: str
+    city: str
+    state: str
+    zipCode: str
+    country: str
+    type: Optional[str] = Field(default="shipping", pattern="^(billing|shipping)$")
 
-@app.get("/customers/{customer_id}", dependencies=[Depends(verify_token)])
+class AddressUpdate(BaseModel):
+    street: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
+    zipCode: Optional[str]
+    country: Optional[str]
+    type: Optional[str] = Field(default=None, pattern="^(billing|shipping)$")
+
+class OrderItem(BaseModel):
+    productId: str
+    quantity: int = Field(..., gt=0)
+    price: float = Field(..., ge=0)
+
+class OrderCreate(BaseModel):
+    customerId: str
+    orderDate: str
+    status: str = Field(..., pattern="^(pending|shipped|completed)$")
+    items: List[OrderItem]
+
+class OrderUpdate(BaseModel):
+    orderDate: Optional[str]
+    status: Optional[str] = Field(default=None, pattern="^(pending|shipped|completed)$")
+    items: Optional[List[OrderItem]]
+
+class ProductCreate(BaseModel):
+    name: str
+    description: str
+    price: float = Field(..., ge=0)
+    stock: int = Field(..., ge=0)
+    category: str
+    status: str = Field(default="active", pattern="^(active|inactive)$")
+    tags: Optional[List[str]] = []
+
+class ProductUpdate(BaseModel):
+    name: Optional[str]
+    description: Optional[str]
+    price: Optional[float] = Field(default=None, ge=0)
+    stock: Optional[int] = Field(default=None, ge=0)
+    category: Optional[str]
+    status: Optional[str] = Field(default=None, pattern="^(active|inactive)$")
+    tags: Optional[List[str]]
+
+
+# -------------------------------
+# FastAPI app
+# -------------------------------
+
+app = FastAPI()
+
+# ---- Customers ----
+@app.post("/customers")
+def create_customer(customer: CustomerCreate):
+    doc = customer.dict()
+    result = db.customers.insert_one(doc)
+    return {"inserted_id": str(result.inserted_id)}
+
+@app.get("/customers/{customer_id}")
 def get_customer(customer_id: str):
-    customer = db.customers.find_one({"_id": ObjectId(customer_id)})
-    if not customer:
-        raise HTTPException(404, "Customer not found")
-    return fix_id(customer)
+    doc = db.customers.find_one({"_id": validate_object_id(customer_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return fix_id(doc)
 
-@app.put("/customers/{customer_id}", dependencies=[Depends(verify_token)])
-def update_customer(customer_id: str, update: dict):
-    res = db.customers.update_one({"_id": ObjectId(customer_id)}, {"$set": update})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Customer not found")
-    return {"status": "updated"}
+@app.get("/customers")
+def list_customers(status: Optional[str] = Query(None, regex="^(active|inactive)$")):
+    query = {}
+    if status:
+        query["status"] = status
+    docs = list(db.customers.find(query))
+    return [fix_id(doc) for doc in docs]
 
-@app.delete("/customers/{customer_id}", dependencies=[Depends(verify_token)])
+@app.patch("/customers/{customer_id}")
+def update_customer(customer_id: str, updates: CustomerUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+    result = db.customers.update_one(
+        {"_id": validate_object_id(customer_id)},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return get_customer(customer_id)
+
+@app.delete("/customers/{customer_id}")
 def delete_customer(customer_id: str):
-    res = db.customers.delete_one({"_id": ObjectId(customer_id)})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Customer not found")
-    return {"status": "deleted"}
+    result = db.customers.delete_one({"_id": validate_object_id(customer_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return {"message": f"Customer {customer_id} deleted successfully"}
 
-# ------------------- Addresses -------------------
-@app.post("/addresses", dependencies=[Depends(verify_token)])
-def create_address(address: dict):
-    res = db.addresses.insert_one(address)
-    return {"_id": str(res.inserted_id)}
+# ---- Addresses ----
+@app.post("/addresses")
+def create_address(address: AddressCreate):
+    doc = address.dict()
+    doc["customerId"] = validate_object_id(doc["customerId"])
+    result = db.addresses.insert_one(doc)
+    return {"inserted_id": str(result.inserted_id)}
 
-@app.get("/addresses", dependencies=[Depends(verify_token)])
-def list_addresses():
-    return [fix_id(a) for a in db.addresses.find()]
-
-@app.get("/addresses/{address_id}", dependencies=[Depends(verify_token)])
+@app.get("/addresses/{address_id}")
 def get_address(address_id: str):
-    addr = db.addresses.find_one({"_id": ObjectId(address_id)})
-    if not addr:
-        raise HTTPException(404, "Address not found")
-    return fix_id(addr)
+    doc = db.addresses.find_one({"_id": validate_object_id(address_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return fix_id(doc)
 
-@app.put("/addresses/{address_id}", dependencies=[Depends(verify_token)])
-def update_address(address_id: str, update: dict):
-    res = db.addresses.update_one({"_id": ObjectId(address_id)}, {"$set": update})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Address not found")
-    return {"status": "updated"}
+@app.get("/addresses")
+def list_addresses(customerId: Optional[str] = None):
+    query = {}
+    if customerId:
+        query["customerId"] = validate_object_id(customerId)
+    docs = list(db.addresses.find(query))
+    return [fix_id(doc) for doc in docs]
 
-@app.delete("/addresses/{address_id}", dependencies=[Depends(verify_token)])
+@app.patch("/addresses/{address_id}")
+def update_address(address_id: str, updates: AddressUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+    result = db.addresses.update_one(
+        {"_id": validate_object_id(address_id)},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return get_address(address_id)
+
+@app.delete("/addresses/{address_id}")
 def delete_address(address_id: str):
-    res = db.addresses.delete_one({"_id": ObjectId(address_id)})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Address not found")
-    return {"status": "deleted"}
+    result = db.addresses.delete_one({"_id": validate_object_id(address_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return {"message": f"Address {address_id} deleted successfully"}
 
-# ------------------- Orders -------------------
-@app.post("/orders", dependencies=[Depends(verify_token)])
-def create_order(order: dict):
-    res = db.orders.insert_one(order)
-    return {"_id": str(res.inserted_id)}
+# ---- Orders ----
+@app.post("/orders")
+def create_order(order: OrderCreate):
+    items = []
+    for item in order.items:
+        items.append({
+            "productId": validate_object_id(item.productId),
+            "quantity": item.quantity,
+            "price": item.price
+        })
+    doc = {
+        "customerId": validate_object_id(order.customerId),
+        "orderDate": order.orderDate,
+        "status": order.status,
+        "items": items
+    }
+    result = db.orders.insert_one(doc)
+    return {"inserted_id": str(result.inserted_id)}
 
-@app.get("/orders", dependencies=[Depends(verify_token)])
-def list_orders():
-    return [fix_id(o) for o in db.orders.find()]
-
-@app.get("/orders/{order_id}", dependencies=[Depends(verify_token)])
+@app.get("/orders/{order_id}")
 def get_order(order_id: str):
-    order = db.orders.find_one({"_id": ObjectId(order_id)})
-    if not order:
-        raise HTTPException(404, "Order not found")
-    return fix_id(order)
+    doc = db.orders.find_one({"_id": validate_object_id(order_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return fix_id(doc)
 
-@app.put("/orders/{order_id}", dependencies=[Depends(verify_token)])
-def update_order(order_id: str, update: dict):
-    res = db.orders.update_one({"_id": ObjectId(order_id)}, {"$set": update})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Order not found")
-    return {"status": "updated"}
+@app.get("/orders")
+def list_orders(customerId: Optional[str] = None, status: Optional[str] = None):
+    query = {}
+    if customerId:
+        query["customerId"] = validate_object_id(customerId)
+    if status:
+        query["status"] = status
+    docs = list(db.orders.find(query))
+    return [fix_id(doc) for doc in docs]
 
-@app.delete("/orders/{order_id}", dependencies=[Depends(verify_token)])
+@app.patch("/orders/{order_id}")
+def update_order(order_id: str, updates: OrderUpdate):
+    update_data = updates.dict(exclude_unset=True)
+    if "items" in update_data:
+        update_data["items"] = [
+            {
+                "productId": validate_object_id(item.productId),
+                "quantity": item.quantity,
+                "price": item.price
+            }
+            for item in update_data["items"]
+        ]
+    result = db.orders.update_one(
+        {"_id": validate_object_id(order_id)},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return get_order(order_id)
+
+@app.delete("/orders/{order_id}")
 def delete_order(order_id: str):
-    res = db.orders.delete_one({"_id": ObjectId(order_id)})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Order not found")
-    return {"status": "deleted"}
+    result = db.orders.delete_one({"_id": validate_object_id(order_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"message": f"Order {order_id} deleted successfully"}
 
-# ------------------- Products -------------------
-@app.post("/products", dependencies=[Depends(verify_token)])
-def create_product(product: dict):
-    res = db.products.insert_one(product)
-    return {"_id": str(res.inserted_id)}
+# ---- Products ----
+@app.post("/products")
+def create_product(product: ProductCreate):
+    doc = product.dict()
+    result = db.products.insert_one(doc)
+    return {"inserted_id": str(result.inserted_id)}
 
-@app.get("/products", dependencies=[Depends(verify_token)])
-def list_products():
-    return [fix_id(p) for p in db.products.find()]
-
-@app.get("/products/{product_id}", dependencies=[Depends(verify_token)])
+@app.get("/products/{product_id}")
 def get_product(product_id: str):
-    product = db.products.find_one({"_id": ObjectId(product_id)})
-    if not product:
-        raise HTTPException(404, "Product not found")
-    return fix_id(product)
+    doc = db.products.find_one({"_id": validate_object_id(product_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return fix_id(doc)
 
-@app.put("/products/{product_id}", dependencies=[Depends(verify_token)])
-def update_product(product_id: str, update: dict):
-    res = db.products.update_one({"_id": ObjectId(product_id)}, {"$set": update})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Product not found")
-    return {"status": "updated"}
+@app.get("/products")
+def list_products(category: Optional[str] = None, status: Optional[str] = None):
+    query = {}
+    if category:
+        query["category"] = category
+    if status:
+        query["status"] = status
+    docs = list(db.products.find(query))
+    return [fix_id(doc) for doc in docs]
 
-@app.delete("/products/{product_id}", dependencies=[Depends(verify_token)])
+@app.patch("/products/{product_id}")
+def update_product(product_id: str, updates: ProductUpdate):
+    update_data = {k: v for k, v in updates.dict(exclude_unset=True).items()}
+    result = db.products.update_one(
+        {"_id": validate_object_id(product_id)},
+        {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return get_product(product_id)
+
+@app.delete("/products/{product_id}")
 def delete_product(product_id: str):
-    res = db.products.delete_one({"_id": ObjectId(product_id)})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Product not found")
-    return {"status": "deleted"}
+    result = db.products.delete_one({"_id": validate_object_id(product_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"message": f"Product {product_id} deleted successfully"}
 
-@app.get("/customers/{customer_id}/full", dependencies=[Depends(verify_token)])
-def get_customer_full(customer_id: str):
-    # Fetch customer
-    customer = db.customers.find_one({"_id": ObjectId(customer_id)})
+# ---- Customer Details ----
+@app.get("/customers/{customer_id}/details")
+def get_customer_details(customer_id: str):
+    customer = db.customers.find_one({"_id": validate_object_id(customer_id)})
     if not customer:
-        raise HTTPException(404, "Customer not found")
-    customer = fix_id(customer)
+        raise HTTPException(status_code=404, detail="Customer not found")
 
     # Fetch addresses
-    addresses = [fix_id(a) for a in db.addresses.find({"customerId": ObjectId(customer_id)})]
+    addresses = list(db.addresses.find({"customerId": validate_object_id(customer_id)}))
 
     # Fetch orders
-    orders = [fix_id(o) for o in db.orders.find({"customerId": ObjectId(customer_id)})]
+    orders = list(db.orders.find({"customerId": validate_object_id(customer_id)}))
+    for order in orders:
+        # For each order, replace productId with actual product details
+        for item in order.get("items", []):
+            product = db.products.find_one({"_id": item["productId"]})
+            if product:
+                item["product"] = fix_id(product)
 
-    # Combine everything
-    return {
-        "customer": customer,
-        "addresses": addresses,
-        "orders": orders
+    # Build response
+    customer_details = {
+        "customer": fix_id(customer),
+        "addresses": [fix_id(addr) for addr in addresses],
+        "orders": [fix_id(order) for order in orders]
     }
+
+    return customer_details
