@@ -70,11 +70,13 @@ class OrderCreate(BaseModel):
     customerId: str
     orderDate: str
     status: str = Field(..., pattern="^(pending|shipped|completed)$")
+    totalAmount: float = Field(..., ge=0)
     items: List[OrderItem]
 
 class OrderUpdate(BaseModel):
     orderDate: Optional[str]
     status: Optional[str] = Field(default=None, pattern="^(pending|shipped|completed)$")
+    totalAmount: float = Field(..., ge=0)
     items: Optional[List[OrderItem]]
 
 class ProductCreate(BaseModel):
@@ -197,6 +199,7 @@ def create_order(order: OrderCreate):
         "customerId": validate_object_id(order.customerId),
         "orderDate": order.orderDate,
         "status": order.status,
+        "totalAmount": order.totalAmount,
         "items": items
     }
     result = db.orders.insert_one(doc)
