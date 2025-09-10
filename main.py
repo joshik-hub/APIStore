@@ -387,6 +387,7 @@ def list_products(category: Optional[str] = None, status: Optional[str] = None):
 @app.patch("/products/{product_id}")
 def update_product(product_id: str, updates: ProductUpdate):
     update_data = updates.dict(exclude_unset=True)
+    update_data.pop("_id", None)  # never update _id
 
     # Convert price to float if provided
     if "price" in update_data and update_data["price"] is not None:
