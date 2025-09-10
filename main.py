@@ -49,7 +49,7 @@ class AddressCreate(BaseModel):
     street: str
     city: str
     state: str
-    zipCode: str
+    zip: str
     country: str
     type: Optional[str] = Field(default="shipping", pattern="^(billing|shipping)$")
 
@@ -57,7 +57,7 @@ class AddressUpdate(BaseModel):
     street: Optional[str]
     city: Optional[str]
     state: Optional[str]
-    zipCode: Optional[str]
+    zip: Optional[str]
     country: Optional[str]
     type: Optional[str] = Field(default=None, pattern="^(billing|shipping)$")
 
@@ -313,7 +313,7 @@ def delete_order(order_id: str):
 def create_product(product: ProductCreate):
     doc = product.dict()
     result = db.products.insert_one(doc)
-    return {"inserted_id": str(result.inserted_id)}
+        return {"inserted_id": str(result.inserted_id)}
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):
