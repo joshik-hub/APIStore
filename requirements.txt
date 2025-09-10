@@ -1,5 +1,5 @@
-fastapi
-uvicorn
-pymongo
-pydantic
-typing
+fastapi==0.111.1          # The FastAPI framework
+uvicorn[standard]==0.23.2 # ASGI server to run FastAPI
+pymongo==4.3.3            # MongoDB driver, includes bson
+# python-dotenv==1.0.0      # Optional: load environment variables from .env
+email-validator==2.1.2    # Needed for Pydantic's EmailStr validation
