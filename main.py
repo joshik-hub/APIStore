@@ -219,25 +219,51 @@ def list_orders(customerId: Optional[str] = None, status: Optional[str] = None):
     docs = list(db.orders.find(query))
     return [fix_id(doc) for doc in docs]
 
+# @app.patch("/orders/{order_id}")
+# def update_order(order_id: str, updates: OrderUpdate):
+#     update_data = updates.dict(exclude_unset=True)
+#     if "items" in update_data:
+#         update_data["items"] = [
+#             {
+#                 "productId": validate_object_id(item.productId),
+#                 "quantity": item.quantity,
+#                 "price": item.price
+#             }
+#             for item in update_data["items"]
+#         ]
+#     result = db.orders.update_one(
+#         {"_id": validate_object_id(order_id)},
+#         {"$set": update_data}
+#     )
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Order not found")
+#     return get_order(order_id)
+
 @app.patch("/orders/{order_id}")
 def update_order(order_id: str, updates: OrderUpdate):
     update_data = updates.dict(exclude_unset=True)
+
+    # Fix: access dict keys instead of attributes
     if "items" in update_data:
         update_data["items"] = [
             {
-                "productId": validate_object_id(item.productId),
-                "quantity": item.quantity,
-                "price": item.price
+                "productId": validate_object_id(item["productId"]) if item.get("productId") else None,
+                "quantity": item.get("quantity"),
+                "price": item.get("price")
             }
             for item in update_data["items"]
         ]
+
     result = db.orders.update_one(
         {"_id": validate_object_id(order_id)},
         {"$set": update_data}
     )
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Order not found")
+
     return get_order(order_id)
+
 
 @app.delete("/orders/{order_id}")
 def delete_order(order_id: str):
